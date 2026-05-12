@@ -5,6 +5,7 @@ from app.db.engine import get_session
 from app.models.models import User,RefreshToken
 from app.core import security
 from app.core.config import settings
+from app.api.deps import get_current_admin
 from datetime import timedelta, datetime
 from pydantic import BaseModel
 from typing import Optional
@@ -15,7 +16,7 @@ class UserCreate(BaseModel):
     username : str
     password : str
 
-@router.post("/register")
+@router.post("/register",dependencies=[Depends(get_current_admin)])
 def register(userData: UserCreate, db: Session = Depends(get_session)):
     # Check if user already exists
     username = userData.username
