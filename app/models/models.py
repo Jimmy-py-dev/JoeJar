@@ -56,7 +56,7 @@ class DiscountType(str, Enum):
 
 class Sale(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Foreign Keys
     user_id: int = Field(foreign_key="user.id")
@@ -90,7 +90,7 @@ class SaleItem(SQLModel, table=True):
 # --- 5. Audit & History ---
 class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     user_id: int = Field(foreign_key="user.id")
     
     action: str  # e.g., "STOCK_UPDATE", "PRICE_CHANGE", "PURGE"
@@ -103,6 +103,5 @@ class Balance(SQLModel,table=True):
     id : int = Field(default=1,primary_key=True)
     balance_on_hand : float = Field(default=0.0)
     receivables : float = Field(default=0.0)
-
 
 
