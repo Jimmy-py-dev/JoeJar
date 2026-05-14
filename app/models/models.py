@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from enum import Enum
 from typing import List, Optional
 from sqlmodel import Field, Relationship, SQLModel
@@ -23,7 +23,7 @@ class RefreshToken(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     token: str = Field(index=True, unique=True) # The actual JWT refresh string
     user_id: int = Field(foreign_key="user.id")
-    expires_at: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(days=30)) # 30 days validity
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(days=30)) # 30 days validity
     revoked: bool = Field(default=False) # Used for logout or theft detection
     user: User = Relationship() # Link back to user for easy queries
 
@@ -56,7 +56,7 @@ class DiscountType(str, Enum):
 
 class Sale(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=datetime.now(timezone.utc))
     
     # Foreign Keys
     user_id: int = Field(foreign_key="user.id")
@@ -90,7 +90,7 @@ class SaleItem(SQLModel, table=True):
 # --- 5. Audit & History ---
 class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=datetime.now(timezone.utc))
     user_id: int = Field(foreign_key="user.id")
     
     action: str  # e.g., "STOCK_UPDATE", "PRICE_CHANGE", "PURGE"

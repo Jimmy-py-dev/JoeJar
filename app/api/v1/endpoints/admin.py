@@ -17,4 +17,3 @@ def get_audit_logs(
 ):
     return db.exec(select(AuditLog).order_by(AuditLog.timestamp.desc())).all()
 
-
