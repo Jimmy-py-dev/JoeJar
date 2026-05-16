@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from typing import Any, Union
 from jose import jwt
 from passlib.context import CryptContext
@@ -7,7 +7,7 @@ from app.core.config import settings
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 def create_token(subject: Union[str, Any], expires_delta: timedelta, token_type: str) -> str:
-    expire = datetime.utcnow() + expires_delta
+    expire = datetime.now(timezone.utc) + expires_delta
     to_encode = {"exp": expire, "sub": str(subject), "type": token_type}
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 

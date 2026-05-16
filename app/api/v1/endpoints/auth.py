@@ -6,7 +6,7 @@ from app.models.models import User,RefreshToken
 from app.core import security
 from app.core.config import settings
 from app.api.deps import get_current_admin
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime,timezone
 from pydantic import BaseModel
 from typing import Optional
 
@@ -55,7 +55,7 @@ def login(db: Session = Depends(get_session), form_data: OAuth2PasswordRequestFo
     db_refresh = RefreshToken(
         token=refresh_token_str, 
         user_id=user.id, 
-        expires_at=datetime.utcnow() + timedelta(days=7)
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7)
     )
     db.add(db_refresh)
     db.commit()
@@ -66,7 +66,7 @@ def login(db: Session = Depends(get_session), form_data: OAuth2PasswordRequestFo
 def refresh_token(token: str, db: Session = Depends(get_session)):
     # 1. Check if token exists and isn't revoked
     db_token = db.exec(select(RefreshToken).where(RefreshToken.token == token)).first()
-    if not db_token or db_token.revoked or db_token.expires_at < datetime.utcnow():
+    if not db_token or db_token.revoked or db_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     # 2. ROTATION: Revoke the old token immediately
@@ -80,7 +80,7 @@ def refresh_token(token: str, db: Session = Depends(get_session)):
     new_db_refresh = RefreshToken(
         token=new_refresh_str, 
         user_id=db_token.user_id, 
-        expires_at=datetime.utcnow() + timedelta(days=30)
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30)
     )
     db.add(new_db_refresh)
     db.commit()
