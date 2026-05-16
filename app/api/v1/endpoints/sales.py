@@ -6,7 +6,7 @@ from app.db.engine import get_session
 from app.models.models import Sale, SaleItem, Product, AuditLog, User, DiscountType,UserRole,Buyer,Balance
 from app.api.deps import get_current_user,get_current_admin
 from typing import Optional
-from datetime import datetime
+from datetime import datetime,timezone
 import io
 import pandas as pd
 
@@ -195,7 +195,7 @@ def build_sale_history(db: Session, sales_db: List[Sale]):
     return history
 
 def purge_sales_before_current_month(db: Session, current_admin: User):
-    cutoff = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    cutoff = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     old_sales = db.exec(select(Sale).where(Sale.timestamp < cutoff)).all()
     deleted_count = 0
 
@@ -271,15 +271,13 @@ def export_sales(
                 "Order ID": sale.id,
                 "Timestamp": sale.timestamp,
                 "Buyer": buyer_name,
-                "Cashier": sale.seller,
                 "Payment Method": sale.payment_method,
                 "Payment Status": sale.payment_status,
                 "Item": item.item,
                 "Quantity": item.quantity,
                 "Unit Price": item.price,
-                "Line Total": item.price * item.quantity,
+                "Total": item.price * item.quantity,
                 "Discount": sale.discount,
-                "Sale Total": sale.total,
             })
 
     df = pd.DataFrame(rows)
@@ -293,7 +291,7 @@ def export_sales(
         deleted_count = purge_sales_before_current_month(db, current_admin)
 
     suffix = method or "all"
-    filename = f"sales-history-{suffix}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.xlsx"
+    filename = f"sales-history-{suffix}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Deleted-Sales-Count": str(deleted_count)
