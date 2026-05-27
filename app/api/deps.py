@@ -13,7 +13,8 @@ def get_current_user(db: Session = Depends(get_session), token: str = Depends(re
     try:
         
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]) or None
-        
+        if payload is None:
+            raise HTTPException(status_code=403, detail="Could not validate credentials")
         user_id: str = payload.get("sub")
         
         if user_id is None:

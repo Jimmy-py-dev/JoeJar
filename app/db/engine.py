@@ -8,12 +8,12 @@ if settings.DATABASE_URL.startswith("sqlite"):
         settings.DATABASE_URL, 
         echo=True, 
         connect_args={"check_same_thread": False},
-        pool_pre_ping=True  # Checks connection health before using it
+        pool_pre_ping=False  # Checks connection health before using it
     )
 else:
     engine = create_engine(
         settings.DATABASE_URL, 
-        pool_pre_ping=True  # Checks connection health before using it
+        pool_pre_ping=False  # Checks connection health before using it
     )
 
 def get_session():

@@ -41,7 +41,7 @@ def login(db: Session = Depends(get_session), form_data: OAuth2PasswordRequestFo
     # 1. Authenticate User
     user = db.exec(select(User).where(User.username == form_data.username)).first()
     if not user or not security.verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
 
     # 2. Create Tokens
     access_token = security.create_token(

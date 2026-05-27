@@ -29,4 +29,4 @@ app.include_router(financial.router,prefix=f"{settings.API_V1_STR}/admin")
 
 @app.get("/")
 def root():
-    return {"message": "Odoo Lite API is running"}
+    return {"message": "Welcome to the Inventory Management API"}
