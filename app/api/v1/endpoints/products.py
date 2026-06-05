@@ -25,8 +25,6 @@ def create_product(
     admin: User = Depends(get_current_admin)
 ):
     db.add(product)
-    db.commit()
-    db.refresh(product)
     
     # Log the creation
     log = AuditLog(
@@ -36,6 +34,7 @@ def create_product(
     )
     db.add(log)
     db.commit()
+    db.refresh(product)
     return product
 
 # 3. Update Inventory/Price (Admin Only)

@@ -30,7 +30,7 @@ def test_create_product_success(client, db_session, products_url):
     response = client.post(f"{products_url}/", json=payload)
 
     assert response.status_code == 200
-    data = response[0].json()
+    data = response.json()
     assert data["sku"] == "SKU-003"
     assert data["name"] == "Monitor"
     assert data["price"] == 199.99
