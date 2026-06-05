@@ -66,7 +66,15 @@ def login(db: Session = Depends(get_session), form_data: OAuth2PasswordRequestFo
 def refresh_token(token: str, db: Session = Depends(get_session)):
     # 1. Check if token exists and isn't revoked
     db_token = db.exec(select(RefreshToken).where(RefreshToken.token == token)).first()
-    if not db_token or db_token.revoked or db_token.expires_at < datetime.now(timezone.utc):
+    expires_at = db_token.expires_at if db_token else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if (
+        not db_token
+        or db_token.revoked
+        or not expires_at
+        or expires_at < datetime.now(timezone.utc)
+    ):
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     # 2. ROTATION: Revoke the old token immediately

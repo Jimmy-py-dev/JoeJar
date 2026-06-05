@@ -1,143 +1,132 @@
-from unittest.mock import patch
-from app.models.models import User, RefreshToken
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-# --- 1. TEST REGISTER ENDPOINT ---
+from sqlmodel import select
 
-def test_register_user_success(client, mock_session, auth_url):
+from app.models.models import RefreshToken, User
+
+
+def test_register_user_success(client, db_session, auth_url):
     """Ensures a brand new user can register successfully when admin authorized."""
-    # Arrange: Simulate that the database query returns None (user does not exist)
-    mock_session.exec.return_value.first.return_value = None
-    
-    # Mock the internal password hashing function
     with patch("app.core.security.get_password_hash", return_value="hashed_secret") as mock_hash:
-        # Act
-        payload = {"username": "newuser", "password": "securepassword"}
-        response = client.post(f"{auth_url}/register", json=payload)
-        
-        # Assert response schema details
-        assert response.status_code == 200
-        # Assert engine behaviors were executed correctly
-        mock_hash.assert_called_once_with("securepassword")
-        mock_session.add.assert_called_once()
-        mock_session.commit.assert_called_once()
+        response = client.post(
+            f"{auth_url}/register",
+            json={"username": "newuser", "password": "securepassword"},
+        )
 
-def test_register_user_already_exists(client, mock_session, auth_url):
+    assert response.status_code == 200
+    assert response.json()["username"] == "newuser"
+    mock_hash.assert_called_once_with("securepassword")
+
+    db_user = db_session.exec(select(User).where(User.username == "newuser")).first()
+    assert db_user is not None
+    assert db_user.hashed_password == "hashed_secret"
+
+
+def test_register_user_already_exists(client, db_session, auth_url):
     """Ensures registration drops a 400 error if username is taken."""
-    # Arrange: Simulate that database returns an existing user object
-    existing_user = User(username="taken_name", hashed_password="abc")
-    mock_session.exec.return_value.first.return_value = existing_user
-    
-    # Act
-    payload = {"username": "taken_name", "password": "somepassword"}
-    response = client.post(f"{auth_url}/register", json=payload)
-    
-    # Assert
+    db_session.add(User(username="taken_name", hashed_password="abc"))
+    db_session.commit()
+
+    response = client.post(
+        f"{auth_url}/register",
+        json={"username": "taken_name", "password": "somepassword"},
+    )
+
     assert response.status_code == 400
     assert response.json()["detail"] == "Username already taken"
 
 
-# --- 2. TEST LOGIN ENDPOINT ---
-
-def test_login_success(client, mock_session, auth_url):
+def test_login_success(client, db_session, auth_url):
     """Ensures valid user credentials generate appropriate auth tokens."""
-    # Arrange: Setup simulated user profile 
-    fake_user = User(username="testuser", hashed_password="hashed_password")
-    fake_user.id = 99
-    mock_session.exec.return_value.first.return_value = fake_user
-    
-    # Wrap utility layers in execution mocks
-    with patch("app.core.security.verify_password", return_value=True), \
-         patch("app.core.security.create_token", side_effect=["access_jwt", "refresh_jwt"]):
-         
-        # Act
-        form_data = {"username": "testuser", "password": "password123"}
-        response = client.post(f"{auth_url}/login", data=form_data) # Form data context uses 'data'
-        
-        # Assert tokens return as expected
-        assert response.status_code == 200
-        res_data = response.json()
-        assert res_data["access_token"] == "access_jwt"
-        assert res_data["refresh_token"] == "refresh_jwt"
-        
-        # Assert token registration lifecycle was captured to DB
-        mock_session.add.assert_called_once()
-        mock_session.commit.assert_called_once()
+    db_user = User(username="testuser", hashed_password="hashed_password")
+    db_session.add(db_user)
+    db_session.commit()
 
-def test_login_invalid_credentials(client, mock_session, auth_url):
+    with patch("app.core.security.verify_password", return_value=True), patch(
+        "app.core.security.create_token", side_effect=["access_jwt", "refresh_jwt"]
+    ):
+        response = client.post(
+            f"{auth_url}/login",
+            data={"username": "testuser", "password": "password123"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "access_jwt"
+    assert response.json()["refresh_token"] == "refresh_jwt"
+
+    db_token = db_session.exec(
+        select(RefreshToken).where(RefreshToken.token == "refresh_jwt")
+    ).first()
+    assert db_token is not None
+    assert db_token.user_id == db_user.id
+
+
+def test_login_invalid_credentials(client, db_session, auth_url):
     """Ensures invalid credentials are rejected."""
-    # Arrange: Simulate user retrieval and failed password verification
-    fake_user = User(username="testuser", hashed_password="hashed_password")
-    mock_session.exec.return_value.first.return_value = fake_user
-    
+    db_session.add(User(username="testuser", hashed_password="hashed_password"))
+    db_session.commit()
+
     with patch("app.core.security.verify_password", return_value=False):
-        # Act
-        form_data = {"username": "testuser", "password": "wrongpassword"}
-        response = client.post(f"{auth_url}/login", data=form_data)
-        
-        # Assert
-        assert response.status_code == 401
-        assert response.json()["detail"] == "Invalid username or password"
+        response = client.post(
+            f"{auth_url}/login",
+            data={"username": "testuser", "password": "wrongpassword"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid username or password"
 
 
-# --- 3. TEST REFRESH TOKEN ROTATION ---
-
-def test_refresh_token_rotation_success(client, mock_session, auth_url):
+def test_refresh_token_rotation_success(client, db_session, auth_url, mock_user):
     """Ensures token rotation successfully revokes the old token and issues a new pair."""
-    # Arrange: Setup valid, unrevoked database token object
-    future_expiry = datetime.now(timezone.utc) + timedelta(days=1)
-    fake_db_token = RefreshToken(
-        token="old_refresh_jwt", 
-        user_id=99, 
-        revoked=False, 
-        expires_at=future_expiry
+    db_token = RefreshToken(
+        token="old_refresh_jwt",
+        user_id=mock_user.id,
+        revoked=False,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
-    mock_session.exec.return_value.first.return_value = fake_db_token
-    
+    db_session.add(db_token)
+    db_session.commit()
+
     with patch("app.core.security.create_token", side_effect=["new_access_jwt", "new_refresh_jwt"]):
-        # Act
         response = client.post(f"{auth_url}/refresh", params={"token": "old_refresh_jwt"})
-        
-        # Assert
-        assert response.status_code == 200
-        assert response.json()["access_token"] == "new_access_jwt"
-        assert fake_db_token.revoked is True # Verifies business logic modification
-        mock_session.commit.assert_called_once()
 
-def test_refresh_token_invalid(client, mock_session, auth_url):
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "new_access_jwt"
+    assert response.json()["refresh_token"] == "new_refresh_jwt"
+
+    db_session.refresh(db_token)
+    assert db_token.revoked is True
+    assert db_session.exec(
+        select(RefreshToken).where(RefreshToken.token == "new_refresh_jwt")
+    ).first()
+
+
+def test_refresh_token_invalid(client, db_session, auth_url):
     """Ensures missing or revoked refresh tokens are rejected."""
-    mock_session.exec.return_value.first.return_value = None
-
     response = client.post(f"{auth_url}/refresh", params={"token": "missing_refresh_jwt"})
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or expired refresh token"
-    mock_session.add.assert_not_called()
-    mock_session.commit.assert_not_called()
+    assert db_session.exec(select(RefreshToken)).all() == []
 
 
-# --- 4. TEST LOGOUT ENDPOINT ---
-
-def test_logout_revokes_token(client, mock_session, auth_url):
+def test_logout_revokes_token(client, db_session, auth_url, mock_user):
     """Ensures logout endpoint flags targeted token as revoked."""
-    # Arrange
-    fake_db_token = RefreshToken(token="active_token", user_id=5, revoked=False)
-    mock_session.exec.return_value.first.return_value = fake_db_token
-    
-    # Act
+    db_token = RefreshToken(token="active_token", user_id=mock_user.id, revoked=False)
+    db_session.add(db_token)
+    db_session.commit()
+
     response = client.post(f"{auth_url}/logout", params={"token": "active_token"})
-    
-    # Assert
+
     assert response.status_code == 200
-    assert fake_db_token.revoked is True
-    mock_session.commit.assert_called_once()
+    db_session.refresh(db_token)
+    assert db_token.revoked is True
 
-def test_logout_missing_token_still_succeeds(client, mock_session, auth_url):
+
+def test_logout_missing_token_still_succeeds(client, db_session, auth_url):
     """Ensures logout is idempotent when the token is already absent."""
-    mock_session.exec.return_value.first.return_value = None
-
     response = client.post(f"{auth_url}/logout", params={"token": "missing_token"})
 
     assert response.status_code == 200
     assert response.json()["detail"] == "Successfully logged out"
-    mock_session.commit.assert_not_called()

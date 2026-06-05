@@ -1,12 +1,8 @@
-from app.models.models import Balance
+from app.models.models import Balance, DiscountType, Sale
 
 
-# --- 1. TEST FINANCIAL SUMMARY ---
-
-def test_financial_summary_returns_zero_when_balance_missing(client, mock_session, admin_url):
+def test_financial_summary_returns_zero_when_balance_missing(client, admin_url):
     """Ensures missing balance rows produce a zeroed summary."""
-    mock_session.get.return_value = None
-
     response = client.get(f"{admin_url}/financial-summary")
 
     assert response.status_code == 200
@@ -15,12 +11,12 @@ def test_financial_summary_returns_zero_when_balance_missing(client, mock_sessio
         "receivables": 0,
         "actual_balance": 0,
     }
-    mock_session.get.assert_called_once_with(Balance, 1)
 
 
-def test_financial_summary_success(client, mock_session, admin_url):
+def test_financial_summary_success(client, db_session, admin_url):
     """Ensures balance and receivables are summarized correctly."""
-    mock_session.get.return_value = Balance(id=1, balance_on_hand=150.0, receivables=25.5)
+    db_session.add(Balance(id=1, balance_on_hand=150.0, receivables=25.5))
+    db_session.commit()
 
     response = client.get(f"{admin_url}/financial-summary")
 
@@ -32,22 +28,20 @@ def test_financial_summary_success(client, mock_session, admin_url):
     }
 
 
-# --- 2. TEST BALANCE UPDATE ---
-
-def test_update_balance_requires_balance(client, mock_session, admin_url):
+def test_update_balance_requires_balance(client, db_session, admin_url):
     """Ensures balance update rejects missing balance query param."""
     response = client.patch(f"{admin_url}/update_balance")
 
     assert response.status_code == 400
     assert response.json()["detail"] == "balance is required"
-    mock_session.add.assert_not_called()
-    mock_session.commit.assert_not_called()
+    assert db_session.get(Balance, 1) is None
 
 
-def test_update_balance_existing_balance(client, mock_session, admin_url):
+def test_update_balance_existing_balance(client, db_session, admin_url):
     """Ensures admins can overwrite balance on hand."""
     db_balance = Balance(id=1, balance_on_hand=10.0, receivables=40.0)
-    mock_session.get.return_value = db_balance
+    db_session.add(db_balance)
+    db_session.commit()
 
     response = client.patch(f"{admin_url}/update_balance", params={"balance": 99.5})
 
@@ -57,17 +51,26 @@ def test_update_balance_existing_balance(client, mock_session, admin_url):
         "receivables": 40.0,
         "actual_balance": 139.5,
     }
+    db_session.refresh(db_balance)
     assert db_balance.balance_on_hand == 99.5
-    mock_session.add.assert_called_once_with(db_balance)
-    mock_session.commit.assert_called_once()
-    mock_session.refresh.assert_called_once_with(db_balance)
 
 
-def test_recalculate_receivables_success(client, mock_session, admin_url):
+def test_recalculate_receivables_success(client, db_session, admin_url, mock_user):
     """Ensures receivables are recalculated from pending sales."""
     db_balance = Balance(id=1, balance_on_hand=100.0, receivables=0.0)
-    mock_session.exec.return_value.first.return_value = 73.25
-    mock_session.get.return_value = db_balance
+    db_session.add(db_balance)
+    db_session.add(
+        Sale(
+            user_id=mock_user.id,
+            subtotal=73.25,
+            discount_type=DiscountType.NONE,
+            discount_value=0.0,
+            total_price=73.25,
+            payment_method="credit",
+            payment_status="pending",
+        )
+    )
+    db_session.commit()
 
     response = client.post(f"{admin_url}/balance/recalculate-receivables")
 
@@ -76,6 +79,5 @@ def test_recalculate_receivables_success(client, mock_session, admin_url):
         "message": "Receivables synchronized",
         "receivables": 73.25,
     }
+    db_session.refresh(db_balance)
     assert db_balance.receivables == 73.25
-    mock_session.add.assert_called_once_with(db_balance)
-    mock_session.commit.assert_called_once()
