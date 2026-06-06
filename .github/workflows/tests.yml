@@ -1,15 +1,21 @@
-name: Tests
+name: CI/CD Pipeline
 
 on:
   push:
+    branches: [ main, master ]
   pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   pytest:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -43,3 +49,42 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/odoo_lite_test
           SECRET_KEY: test-secret-key
         run: pytest
+
+  build-and-push:
+    needs: pytest
+    # Only run this step if the tests pass AND we are merging/pushing to the main branch
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
